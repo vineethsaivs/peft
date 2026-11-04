@@ -1936,7 +1936,13 @@ MULTIPLE_ACTIVE_ADAPTERS_TEST_CASES = [
         {"target_modules": ["lin0"], "init_weights": False, "oft_block_size": 2},
         {"target_modules": ["lin1"], "init_weights": False, "oft_block_size": 2},
     ),
-    # Note: Multiple C3A adapters applied to the same layer fails with shape mismatch
+    (
+        "C3A Same",
+        "c3a",
+        C3AConfig,
+        {"target_modules": ["lin0"], "init_weights": False, "block_size": 2},
+        {"target_modules": ["lin0"], "init_weights": False, "block_size": 2},
+    ),
     (
         "C3A Different",
         "c3a",
