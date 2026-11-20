@@ -599,3 +599,55 @@ class TestPackageVersionDeprecations:
             if issubclass(warning.category, FutureWarning) and ("Support for PyTorch" in str(warning.message))
         ]
         assert len(matching) == num_expected_warnings
+
+
+@pytest.mark.skipif(
+    packaging.version.parse(transformers.__version__) < packaging.version.parse("5.13.0"),
+    reason="Transformers uses the PEFT weight mapping for load_adapter starting with v5.13",
+)
+class TestTransformersLoadAdapter:
+    # Loading an adapter through the Transformers integration should give the same model as PeftModel.from_pretrained
+
+    @pytest.fixture
+    def model_and_inputs(self, tmp_path):
+        config = transformers.LlamaConfig(
+            vocab_size=64,
+            hidden_size=32,
+            intermediate_size=64,
+            num_hidden_layers=2,
+            num_attention_heads=4,
+            num_key_value_heads=2,
+        )
+        torch.manual_seed(0)
+        transformers.LlamaForCausalLM(config).save_pretrained(tmp_path / "base")
+        inputs = torch.arange(10).view(1, -1)
+        return tmp_path / "base", inputs
+
+    @pytest.mark.parametrize(
+        "config_kwargs",
+        [
+            {"target_modules": ["q_proj", "v_proj"]},
+            {"target_modules": ["q_proj", "v_proj"], "use_dora": True},
+            {"target_modules": ["embed_tokens"], "use_dora": True},
+        ],
+    )
+    def test_load_adapter_matches_peft_model(self, model_and_inputs, config_kwargs, tmp_path):
+        base_path, inputs = model_and_inputs
+        model = AutoModelForCausalLM.from_pretrained(base_path)
+        peft_model = get_peft_model(model, LoraConfig(**config_kwargs))
+        # emulate training, this includes the DoRA magnitude vector
+        with torch.no_grad():
+            for param in peft_model.parameters():
+                if param.requires_grad:
+                    param.add_(0.1 * torch.randn_like(param))
+        peft_model.eval()
+        with torch.inference_mode():
+            expected = peft_model(inputs).logits
+        peft_model.save_pretrained(tmp_path / "adapter")
+
+        model = AutoModelForCausalLM.from_pretrained(base_path)
+        model.load_adapter(tmp_path / "adapter")
+        model.eval()
+        with torch.inference_mode():
+            output = model(inputs).logits
+        assert torch.allclose(output, expected, atol=1e-6, rtol=1e-6)

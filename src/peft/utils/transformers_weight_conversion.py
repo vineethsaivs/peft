@@ -213,6 +213,8 @@ def build_peft_weight_mapping(
     new_weight_conversions = [
         WeightRenaming("base_model.model.model.", "model."),
         WeightRenaming("base_model.model.", ""),
+        # the DoRA magnitude is saved without the ".weight" suffix of its parameter, see LoraModel._get_adapter_state_dict
+        WeightRenaming(r"lora_magnitude_vector$", "lora_magnitude_vector.weight"),
     ]
 
     prefixes = set()
